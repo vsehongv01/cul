@@ -1,115 +1,380 @@
-import Image from "next/image";
-import { Geist, Geist_Mono } from "next/font/google";
+import { useState } from "react";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+} from "chart.js";
+import { Scatter, Line } from "react-chartjs-2";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
-export default function Home() {
+function degToRad(deg: number) {
+  return (deg * Math.PI) / 180;
+}
+
+function computeCompensation(
+  sph: number,
+  cyl: number,
+  axis: number,
+  pa: number,
+  wa: number,
+  index: number
+) {
+  const thetaPA = degToRad(pa);
+  const thetaWA = degToRad(wa);
+  const paFactor = 1 + Math.pow(Math.tan(thetaPA), 2) / (index - 1);
+  const sphPA = sph * paFactor;
+  const cylPA = cyl * paFactor;
+  const deltaCylWA = -(sphPA * Math.pow(Math.sin(thetaWA), 2)) / (2 * (index - 1));
+  const cylFinal = cylPA + deltaCylWA;
+  const M = sphPA + cylFinal / 2;
+  const axisRad = (axis * Math.PI) / 180;
+  const J0 = -cylFinal / 2 * Math.cos(2 * axisRad);
+  const J45 = -cylFinal / 2 * Math.sin(2 * axisRad);
+  const cylMag = -2 * Math.hypot(J0, J45);
+  const axisFinal = (0.5 * Math.atan2(J45, J0)) * (180 / Math.PI);
+  const sphFinal = M - cylMag / 2;
+  return {
+    sph: sphFinal,
+    cyl: cylMag,
+    axis: ((axisFinal + 180) % 180)
+  };
+}
+
+function computePDCompensation(pd: number, wa: number, vertexDistance = 12) {
+  return pd + 2 * Math.tan(degToRad(wa)) * vertexDistance;
+}
+
+function getYReverse(data: number[]): boolean {
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  if (max <= 0) return true; // 모두 음수면 reverse
+  if (min >= 0) return false; // 모두 양수면 일반
+  return false; // 혼합이면 일반
+}
+
+export default function TiltCompCalculator() {
+  type EyeSide = "R" | "L";
+  type InputKeys = "sph" | "cyl" | "axis" | "pa" | "wa" | "pd" | "index";
+  type InputState = {
+    [key in EyeSide]: {
+      sph: number;
+      cyl: number;
+      axis: number;
+      pa: number;
+      wa: number;
+      pd: number;
+      index: number;
+    }
+  };
+  const [inputs, setInputs] = useState<InputState>({
+    R: { sph: -4, cyl: -1.5, axis: 180, pa: 10, wa: 10, pd: 32, index: 1.6 },
+    L: { sph: -4, cyl: -1.5, axis: 180, pa: 10, wa: 10, pd: 32, index: 1.6 }
+  });
+  const [eye, setEye] = useState<EyeSide>("R");
+
+  const handleInputChange = (side: EyeSide, key: InputKeys, value: string) => {
+    setInputs(prev => ({
+      ...prev,
+      [side]: { ...prev[side], [key]: parseFloat(value) }
+    }));
+  };
+
+  const result = {
+    R: computeCompensation(
+      inputs.R.sph,
+      inputs.R.cyl,
+      inputs.R.axis,
+      inputs.R.pa,
+      inputs.R.wa,
+      inputs.R.index
+    ),
+    L: computeCompensation(
+      inputs.L.sph,
+      inputs.L.cyl,
+      inputs.L.axis,
+      inputs.L.pa,
+      inputs.L.wa,
+      inputs.L.index
+    )
+  };
+
+  const pdComp = {
+    R: computePDCompensation(inputs.R.pd, inputs.R.wa),
+    L: computePDCompensation(inputs.L.pd, inputs.L.wa)
+  };
+
   return (
-    <div
-      className={`${geistSans.className} ${geistMono.className} grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]`}
-    >
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              pages/index.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: 30, fontFamily: "sans-serif" }}>
+      <h1 style={{ fontSize: 28, marginBottom: 20 }}>👓 주문도수예측계산기</h1>
+
+      <section style={{ background: "#f9fafb", padding: 20, borderRadius: 8, boxShadow: "0 1px 4px #ccc" }}>
+        <h2 style={{ fontSize: 20, marginBottom: 10 }}>👁 입력값</h2>
+        <table style={{ width: "100%", textAlign: "center", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ background: "#e5e7eb" }}>
+              <th></th><th>SPH</th><th>CYL</th><th>AXIS</th><th>경사각</th><th>안면각</th><th>PD</th><th>굴절률</th>
+            </tr>
+          </thead>
+          <tbody>
+            {["R", "L"].map(side => (
+              <tr key={side}>
+                <td>{side === "R" ? "👁 오른쪽" : "👁 왼쪽"}</td>
+                {["sph", "cyl", "axis", "pa", "wa", "pd", "index"].map(key => (
+                  <td key={key}>
+                    <input
+                      type="number"
+                      step={key === "pd" ? 0.25 : key === "sph" || key === "cyl" ? 0.25 : 1}
+                      value={inputs[side as EyeSide][key as InputKeys]}
+                      onChange={(e) => handleInputChange(side as EyeSide, key as InputKeys, e.target.value)}
+                      style={{ width: 60, padding: 4 }}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div style={{ marginTop: 10, marginBottom: 20 }}>
+          <label><strong>👁 차트 보기 기준:</strong></label>{" "}
+          <select value={eye} onChange={(e) => setEye(e.target.value as EyeSide)} style={{ padding: 6 }}>
+            <option value="R">오른쪽</option>
+            <option value="L">왼쪽</option>
+          </select>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      </section>
+
+      <section style={{ marginTop: 40 }}>
+        <h2 style={{ fontSize: 20, marginBottom: 10 }}>🧩 시각적 이해를 위한 시뮬레이션</h2>
+        <div style={{
+          display: "flex",
+          flexWrap: "nowrap",
+          gap: 16,
+          justifyContent: "center",
+          width: "100%"
+        }}>
+          {/* 경사각(PA) 변화 차트 */}
+          <div style={{
+            background: "#fff",
+            padding: 10,
+            borderRadius: 8,
+            border: "1px solid #ccc",
+            flex: 1,
+            minWidth: 420,
+            maxWidth: 700
+          }}>
+            <h4 style={{ fontSize: 18, marginBottom: 10 }}>📈 경사각(PA) 변화에 따른 Sph / Cyl</h4>
+            <Line
+              data={{
+                labels: Array.from({ length: 21 }, (_, i) => (i).toString()),
+                datasets: [
+                  {
+                    label: eye === "R" ? "오른쪽 Sph" : "왼쪽 Sph",
+                    data: Array.from({ length: 21 }, (_, idx) => {
+                      const pa = idx;
+                      const values = Array.from({ length: Math.round(1/0.12)+1 }, (_, j) => computeCompensation(
+                        inputs[eye].sph,
+                        inputs[eye].cyl,
+                        inputs[eye].axis,
+                        pa + j * 0.12,
+                        inputs[eye].wa,
+                        inputs[eye].index
+                      ).sph);
+                      return values.reduce((a, b) => a + b, 0) / values.length;
+                    }),
+                    borderColor: eye === "R" ? "#1976d2" : "#e67e22",
+                    backgroundColor: eye === "R" ? "rgba(25,118,210,0.1)" : "rgba(230,126,34,0.1)",
+                    tension: 0.3
+                  },
+                  {
+                    label: eye === "R" ? "오른쪽 Cyl" : "왼쪽 Cyl",
+                    data: Array.from({ length: 21 }, (_, idx) => {
+                      const pa = idx;
+                      const values = Array.from({ length: Math.round(1/0.12)+1 }, (_, j) => {
+                        const comp = computeCompensation(
+                          inputs[eye].sph,
+                          inputs[eye].cyl,
+                          inputs[eye].axis,
+                          pa + j * 0.12,
+                          inputs[eye].wa,
+                          inputs[eye].index
+                        );
+                        return comp.sph + comp.cyl;
+                      });
+                      return values.reduce((a, b) => a + b, 0) / values.length;
+                    }),
+                    borderColor: eye === "R" ? "#64b5f6" : "#f6b26b",
+                    backgroundColor: eye === "R" ? "rgba(100,181,246,0.1)" : "rgba(246,178,107,0.1)",
+                    tension: 0.3
+                  }
+                ]
+              }}
+              options={{
+                responsive: true,
+                plugins: {
+                  legend: { position: "top" as const },
+                  title: { display: true, text: "경사각(PA) 변화에 따른 Sph / Cyl (안면각 고정)" }
+                },
+                scales: {
+                  x: { title: { display: true, text: "경사각(PA, 도, 1도 단위)" } },
+                  y: {
+                    title: { display: true, text: "도수(D)" },
+                    reverse: getYReverse([...Array.from({ length: 21 }, (_, idx) => {
+                      const pa = idx;
+                      const values = Array.from({ length: Math.round(1/0.12)+1 }, (_, j) => computeCompensation(
+                        inputs[eye].sph,
+                        inputs[eye].cyl,
+                        inputs[eye].axis,
+                        pa + j * 0.12,
+                        inputs[eye].wa,
+                        inputs[eye].index
+                      ).sph);
+                      return values.reduce((a, b) => a + b, 0) / values.length;
+                    }), ...Array.from({ length: 21 }, (_, idx) => {
+                      const pa = idx;
+                      const values = Array.from({ length: Math.round(1/0.12)+1 }, (_, j) => {
+                        const comp = computeCompensation(
+                          inputs[eye].sph,
+                          inputs[eye].cyl,
+                          inputs[eye].axis,
+                          pa + j * 0.12,
+                          inputs[eye].wa,
+                          inputs[eye].index
+                        );
+                        return comp.sph + comp.cyl;
+                      });
+                      return values.reduce((a, b) => a + b, 0) / values.length;
+                    })]),
+                    ticks: {
+                      stepSize: 0.12,
+                      callback: function(value) { return Number(value).toFixed(2); }
+                    }
+                  }
+                }
+              }}
+              height={300}
+              width={600}
+            />
+          </div>
+          {/* 안면각(WA) 변화 차트 */}
+          <div style={{
+            background: "#fff",
+            padding: 10,
+            borderRadius: 8,
+            border: "1px solid #ccc",
+            flex: 1,
+            minWidth: 420,
+            maxWidth: 700
+          }}>
+            <h4 style={{ fontSize: 18, marginBottom: 10 }}>📈 안면각(WA) 변화에 따른 Sph / Cyl</h4>
+            <Line
+              data={{
+                labels: Array.from({ length: 21 }, (_, i) => (i).toString()),
+                datasets: [
+                  {
+                    label: eye === "R" ? "오른쪽 Sph" : "왼쪽 Sph",
+                    data: Array.from({ length: 21 }, (_, idx) => {
+                      const wa = idx;
+                      const values = Array.from({ length: Math.round(1/0.12)+1 }, (_, j) => computeCompensation(
+                        inputs[eye].sph,
+                        inputs[eye].cyl,
+                        inputs[eye].axis,
+                        inputs[eye].pa,
+                        wa + j * 0.12,
+                        inputs[eye].index
+                      ).sph);
+                      return values.reduce((a, b) => a + b, 0) / values.length;
+                    }),
+                    borderColor: eye === "R" ? "#1976d2" : "#e67e22",
+                    backgroundColor: eye === "R" ? "rgba(25,118,210,0.1)" : "rgba(230,126,34,0.1)",
+                    tension: 0.3
+                  },
+                  {
+                    label: eye === "R" ? "오른쪽 Cyl" : "왼쪽 Cyl",
+                    data: Array.from({ length: 21 }, (_, idx) => {
+                      const wa = idx;
+                      const values = Array.from({ length: Math.round(1/0.12)+1 }, (_, j) => {
+                        const comp = computeCompensation(
+                          inputs[eye].sph,
+                          inputs[eye].cyl,
+                          inputs[eye].axis,
+                          inputs[eye].pa,
+                          wa + j * 0.12,
+                          inputs[eye].index
+                        );
+                        return comp.sph + comp.cyl;
+                      });
+                      return values.reduce((a, b) => a + b, 0) / values.length;
+                    }),
+                    borderColor: eye === "R" ? "#64b5f6" : "#f6b26b",
+                    backgroundColor: eye === "R" ? "rgba(100,181,246,0.1)" : "rgba(246,178,107,0.1)",
+                    tension: 0.3
+                  }
+                ]
+              }}
+              options={{
+                responsive: true,
+                plugins: {
+                  legend: { position: "top" as const },
+                  title: { display: true, text: "안면각(WA) 변화에 따른 Sph / Cyl (경사각 고정)" }
+                },
+                scales: {
+                  x: { title: { display: true, text: "안면각(WA, 도, 1도 단위)" } },
+                  y: {
+                    title: { display: true, text: "도수(D)" },
+                    reverse: getYReverse([...Array.from({ length: 21 }, (_, idx) => {
+                      const wa = idx;
+                      const values = Array.from({ length: Math.round(1/0.12)+1 }, (_, j) => computeCompensation(
+                        inputs[eye].sph,
+                        inputs[eye].cyl,
+                        inputs[eye].axis,
+                        inputs[eye].pa,
+                        wa + j * 0.12,
+                        inputs[eye].index
+                      ).sph);
+                      return values.reduce((a, b) => a + b, 0) / values.length;
+                    }), ...Array.from({ length: 21 }, (_, idx) => {
+                      const wa = idx;
+                      const values = Array.from({ length: Math.round(1/0.12)+1 }, (_, j) => {
+                        const comp = computeCompensation(
+                          inputs[eye].sph,
+                          inputs[eye].cyl,
+                          inputs[eye].axis,
+                          inputs[eye].pa,
+                          wa + j * 0.12,
+                          inputs[eye].index
+                        );
+                        return comp.sph + comp.cyl;
+                      });
+                      return values.reduce((a, b) => a + b, 0) / values.length;
+                    })]),
+                    ticks: {
+                      stepSize: 0.12,
+                      callback: function(value) { return Number(value).toFixed(2); }
+                    }
+                  }
+                }
+              }}
+              height={300}
+              width={600}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section style={{ marginTop: 40 }}>
+        <h2 style={{ fontSize: 20 }}>🧠 주문 도수 (실제 렌즈에 넣어야 할 값)</h2>
+        <div style={{ background: "#fef3c7", padding: 16, borderRadius: 8, marginTop: 10 }}>
+          <p>👁 <strong>오른쪽</strong>: Sph {result.R.sph.toFixed(2)} / Cyl {result.R.cyl.toFixed(2)} / Axis {result.R.axis.toFixed(1)}° / Index {inputs.R.index} / PD {pdComp.R.toFixed(2)}mm</p>
+          <p>👁 <strong>왼쪽</strong>: Sph {result.L.sph.toFixed(2)} / Cyl {result.L.cyl.toFixed(2)} / Axis {result.L.axis.toFixed(1)}° / Index {inputs.L.index} / PD {pdComp.L.toFixed(2)}mm</p>
+        </div>
+      </section>
     </div>
   );
 }
