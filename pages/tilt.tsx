@@ -30,8 +30,8 @@ function computeCompensation(
   axis: number,
   pa: number,
   wa: number,
-  index: number
-  vertexDistance: number = 12 // 👈 기본값 설정
+  index: number,
+  vertexDistance: number = 12
 ) {
   const thetaPA = degToRad(pa);
   const thetaWA = degToRad(wa);
@@ -64,7 +64,9 @@ function computeCompensation(
     compensated: {
       sph: sphFinal.toFixed(2),
       cyl: cylMag.toFixed(2),
-      axis: ((axisFinal + 180) % 180).toFixed(1)
+      axis: ((axisFinal + 180) % 180).toFixed(1),
+      sphVD: sphVD.toFixed(2),
+      cylVD: cylVD.toFixed(2)
     }
   };
 }
@@ -162,6 +164,9 @@ export default function TiltCompCalculator() {
           <p>Sph: <strong>{result.compensated.sph}</strong></p>
           <p>Cyl: <strong>{result.compensated.cyl}</strong></p>
           <p>Axis: <strong>{result.compensated.axis}°</strong></p>
+          <p style={{ marginTop: "10px" }}><strong>🔎 VD(버텍스 거리) 보정값:</strong></p>
+          <p>Sph(VD 보정): <strong>{result.compensated.sphVD}</strong></p>
+          <p>Cyl(VD 보정): <strong>{result.compensated.cylVD}</strong></p>
         </div>
       )}
     </div>
