@@ -18,6 +18,11 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, T
 function degToRad(deg: number) {
   return (deg * Math.PI) / 180;
 }
+// 👈 VD 보정 함수 추가
+function vertexCompensation(power: number, vertexDistance: number) {
+  const d = vertexDistance / 1000; // mm → m
+  return power / (1 - d * power);
+}
 
 function computeCompensation(
   sph: number,
@@ -26,6 +31,7 @@ function computeCompensation(
   pa: number,
   wa: number,
   index: number
+  vertexDistance: number = 12 // 👈 기본값 설정
 ) {
   const thetaPA = degToRad(pa);
   const thetaWA = degToRad(wa);
@@ -45,6 +51,10 @@ function computeCompensation(
   const axisFinal = (0.5 * Math.atan2(J45, J0)) * (180 / Math.PI);
   const sphFinal = M - cylMag / 2;
 
+  // 👈 VD 보정 적용
+  const sphVD = vertexCompensation(sphFinal, vertexDistance);
+  const cylVD = vertexCompensation(cylMag, vertexDistance);
+
   return {
     original: {
       sph: sph.toFixed(2),
@@ -60,7 +70,7 @@ function computeCompensation(
 }
 
 export default function TiltCompCalculator() {
-  const [inputs, setInputs] = useState({ sph: -4, cyl: -1.5, axis: 180, pa: 10, wa: 10, index: 1.6 });
+  const [inputs, setInputs] = useState({ sph: -4, cyl: -1.5, axis: 180, pa: 10, wa: 10, index: 1.6,vertexDistance: 12 });
   const [result, setResult] = useState<null | { original: any; compensated: any }>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,14 +84,15 @@ export default function TiltCompCalculator() {
       inputs.axis,
       inputs.pa,
       inputs.wa,
-      inputs.index
+      inputs.index,
+      inputs.vertexDistance
     );
     setResult(res);
   };
 
   const angles = [0, 5, 10, 15, 20];
   const compensatedSphData = angles.map((pa) => {
-    const res = computeCompensation(inputs.sph, inputs.cyl, inputs.axis, pa, inputs.wa, inputs.index);
+    const res = computeCompensation(inputs.sph, inputs.cyl, inputs.axis, pa, inputs.wa, inputs.index,inputs.vertexDistance);
     return parseFloat(res.compensated.sph);
   });
 
