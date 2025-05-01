@@ -9,8 +9,7 @@ import {
   Tooltip,
   Legend
 } from "chart.js";
-import { Scatter, Line } from "react-chartjs-2";
-
+import { Line } from "react-chartjs-2";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
@@ -18,7 +17,15 @@ function degToRad(deg: number) {
   return (deg * Math.PI) / 180;
 }
 
-function computeCompensation(
+// ✅ VD 역산 공식: 검사 VD → 제작 VD
+function vertexReverseCompensation(feltPower: number, fromVD: number, toVD: number) {
+  const d1 = fromVD / 1000;
+  const d2 = toVD / 1000;
+  return feltPower * (1 + d1 * feltPower) / (1 + d2 * feltPower);
+}
+
+// PA/WA 보정
+function computePaWaCompensation(
   sph: number,
   cyl: number,
   axis: number,
@@ -47,6 +54,33 @@ function computeCompensation(
   };
 }
 
+// 전체 도수 계산
+function computeCompensation(
+  sph: number,
+  cyl: number,
+  axis: number,
+  pa: number,
+  wa: number,
+  index: number,
+  vertexDistance: number = 12
+) {
+  const input = { sph, cyl, axis };
+  const paWa = computePaWaCompensation(sph, cyl, axis, pa, wa, index);
+
+  const sphOrder = vertexReverseCompensation(paWa.sph, 10, vertexDistance);
+  const cylOrder = vertexReverseCompensation(paWa.cyl, 10, vertexDistance);
+
+  return {
+    input,
+    paWa,
+    order: {
+      sph: sphOrder,
+      cyl: cylOrder,
+      axis: paWa.axis
+    }
+  };
+}
+
 function computePDCompensation(pd: number, wa: number, vertexDistance = 12) {
   return pd + 2 * Math.tan(degToRad(wa)) * vertexDistance;
 }
@@ -54,14 +88,14 @@ function computePDCompensation(pd: number, wa: number, vertexDistance = 12) {
 function getYReverse(data: number[]): boolean {
   const min = Math.min(...data);
   const max = Math.max(...data);
-  if (max <= 0) return true; // 모두 음수면 reverse
-  if (min >= 0) return false; // 모두 양수면 일반
-  return false; // 혼합이면 일반
+  if (max <= 0) return true;
+  if (min >= 0) return false;
+  return false;
 }
 
 export default function TiltCompCalculator() {
   type EyeSide = "R" | "L";
-  type InputKeys = "sph" | "cyl" | "axis" | "pa" | "wa" | "pd" | "index";
+  type InputKeys = "sph" | "cyl" | "axis" | "pa" | "wa" | "pd" | "index" | "vertexDistance";
   type InputState = {
     [key in EyeSide]: {
       sph: number;
@@ -71,11 +105,13 @@ export default function TiltCompCalculator() {
       wa: number;
       pd: number;
       index: number;
+      vertexDistance: number;
     }
   };
+
   const [inputs, setInputs] = useState<InputState>({
-    R: { sph: -4, cyl: -1.5, axis: 180, pa: 10, wa: 10, pd: 32, index: 1.6 },
-    L: { sph: -4, cyl: -1.5, axis: 180, pa: 10, wa: 10, pd: 32, index: 1.6 }
+    R: { sph: -4, cyl: -1.5, axis: 180, pa: 10, wa: 10, pd: 32, index: 1.6, vertexDistance: 12 },
+    L: { sph: -4, cyl: -1.5, axis: 180, pa: 10, wa: 10, pd: 32, index: 1.6, vertexDistance: 12 }
   });
   const [eye, setEye] = useState<EyeSide>("R");
 
@@ -93,7 +129,8 @@ export default function TiltCompCalculator() {
       inputs.R.axis,
       inputs.R.pa,
       inputs.R.wa,
-      inputs.R.index
+      inputs.R.index,
+      inputs.R.vertexDistance
     ),
     L: computeCompensation(
       inputs.L.sph,
@@ -101,7 +138,8 @@ export default function TiltCompCalculator() {
       inputs.L.axis,
       inputs.L.pa,
       inputs.L.wa,
-      inputs.L.index
+      inputs.L.index,
+      inputs.L.vertexDistance
     )
   };
 
@@ -114,19 +152,20 @@ export default function TiltCompCalculator() {
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: 30, fontFamily: "sans-serif" }}>
       <h1 style={{ fontSize: 28, marginBottom: 20 }}>👓 주문도수예측계산기</h1>
 
+      {/* 입력창 */}
       <section style={{ background: "#f9fafb", padding: 20, borderRadius: 8, boxShadow: "0 1px 4px #ccc" }}>
         <h2 style={{ fontSize: 20, marginBottom: 10 }}>👁 입력값</h2>
         <table style={{ width: "100%", textAlign: "center", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: "#e5e7eb" }}>
-              <th></th><th>SPH</th><th>CYL</th><th>AXIS</th><th>경사각</th><th>안면각</th><th>PD</th><th>굴절률</th>
+              <th></th><th>SPH</th><th>CYL</th><th>AXIS</th><th>경사각</th><th>안면각</th><th>PD</th><th>굴절률</th><th>VD</th>
             </tr>
           </thead>
           <tbody>
             {["R", "L"].map(side => (
               <tr key={side}>
                 <td>{side === "R" ? "👁 오른쪽" : "👁 왼쪽"}</td>
-                {["sph", "cyl", "axis", "pa", "wa", "pd", "index"].map(key => (
+                {(["sph", "cyl", "axis", "pa", "wa", "pd", "index", "vertexDistance"] as InputKeys[]).map(key => (
                   <td key={key}>
                     <input
                       type="number"
@@ -149,7 +188,6 @@ export default function TiltCompCalculator() {
           </select>
         </div>
       </section>
-
       <section style={{ marginTop: 40 }}>
         <h2 style={{ fontSize: 20, marginBottom: 10 }}>🧩 시각적 이해를 위한 시뮬레이션</h2>
         <div style={{
@@ -184,8 +222,9 @@ export default function TiltCompCalculator() {
                         inputs[eye].axis,
                         pa + j * 0.12,
                         inputs[eye].wa,
-                        inputs[eye].index
-                      ).sph);
+                        inputs[eye].index,
+                        inputs[eye].vertexDistance
+                      ).order.sph);
                       return values.reduce((a, b) => a + b, 0) / values.length;
                     }),
                     borderColor: eye === "R" ? "#1976d2" : "#e67e22",
@@ -203,9 +242,10 @@ export default function TiltCompCalculator() {
                           inputs[eye].axis,
                           pa + j * 0.12,
                           inputs[eye].wa,
-                          inputs[eye].index
+                          inputs[eye].index,
+                          inputs[eye].vertexDistance
                         );
-                        return comp.sph + comp.cyl;
+                        return comp.order.sph + comp.order.cyl;
                       });
                       return values.reduce((a, b) => a + b, 0) / values.length;
                     }),
@@ -233,8 +273,9 @@ export default function TiltCompCalculator() {
                         inputs[eye].axis,
                         pa + j * 0.12,
                         inputs[eye].wa,
-                        inputs[eye].index
-                      ).sph);
+                        inputs[eye].index,
+                        inputs[eye].vertexDistance
+                      ).order.sph);
                       return values.reduce((a, b) => a + b, 0) / values.length;
                     }), ...Array.from({ length: 21 }, (_, idx) => {
                       const pa = idx;
@@ -245,9 +286,10 @@ export default function TiltCompCalculator() {
                           inputs[eye].axis,
                           pa + j * 0.12,
                           inputs[eye].wa,
-                          inputs[eye].index
+                          inputs[eye].index,
+                          inputs[eye].vertexDistance
                         );
-                        return comp.sph + comp.cyl;
+                        return comp.order.sph + comp.order.cyl;
                       });
                       return values.reduce((a, b) => a + b, 0) / values.length;
                     })]),
@@ -287,8 +329,9 @@ export default function TiltCompCalculator() {
                         inputs[eye].axis,
                         inputs[eye].pa,
                         wa + j * 0.12,
-                        inputs[eye].index
-                      ).sph);
+                        inputs[eye].index,
+                        inputs[eye].vertexDistance
+                      ).order.sph);
                       return values.reduce((a, b) => a + b, 0) / values.length;
                     }),
                     borderColor: eye === "R" ? "#1976d2" : "#e67e22",
@@ -306,9 +349,10 @@ export default function TiltCompCalculator() {
                           inputs[eye].axis,
                           inputs[eye].pa,
                           wa + j * 0.12,
-                          inputs[eye].index
+                          inputs[eye].index,
+                          inputs[eye].vertexDistance
                         );
-                        return comp.sph + comp.cyl;
+                        return comp.order.sph + comp.order.cyl;
                       });
                       return values.reduce((a, b) => a + b, 0) / values.length;
                     }),
@@ -336,8 +380,9 @@ export default function TiltCompCalculator() {
                         inputs[eye].axis,
                         inputs[eye].pa,
                         wa + j * 0.12,
-                        inputs[eye].index
-                      ).sph);
+                        inputs[eye].index,
+                        inputs[eye].vertexDistance
+                      ).order.sph);
                       return values.reduce((a, b) => a + b, 0) / values.length;
                     }), ...Array.from({ length: 21 }, (_, idx) => {
                       const wa = idx;
@@ -348,9 +393,10 @@ export default function TiltCompCalculator() {
                           inputs[eye].axis,
                           inputs[eye].pa,
                           wa + j * 0.12,
-                          inputs[eye].index
+                          inputs[eye].index,
+                          inputs[eye].vertexDistance
                         );
-                        return comp.sph + comp.cyl;
+                        return comp.order.sph + comp.order.cyl;
                       });
                       return values.reduce((a, b) => a + b, 0) / values.length;
                     })]),
@@ -368,11 +414,21 @@ export default function TiltCompCalculator() {
         </div>
       </section>
 
+      {/* 결과 출력 */}
       <section style={{ marginTop: 40 }}>
-        <h2 style={{ fontSize: 20 }}>🧠 주문 도수 (실제 렌즈에 넣어야 할 값)</h2>
-        <div style={{ background: "#fef3c7", padding: 16, borderRadius: 8, marginTop: 10 }}>
-          <p>👁 <strong>오른쪽</strong>: Sph {result.R.sph.toFixed(2)} / Cyl {result.R.cyl.toFixed(2)} / Axis {result.R.axis.toFixed(1)}° / Index {inputs.R.index} / PD {pdComp.R.toFixed(2)}mm</p>
-          <p>👁 <strong>왼쪽</strong>: Sph {result.L.sph.toFixed(2)} / Cyl {result.L.cyl.toFixed(2)} / Axis {result.L.axis.toFixed(1)}° / Index {inputs.L.index} / PD {pdComp.L.toFixed(2)}mm</p>
+        <h2 style={{ fontSize: 20 }}>🧠 도수 계산 결과</h2>
+        <div style={{ background: "#fef3c7", padding: 16, borderRadius: 8, marginTop: 10, lineHeight: 1.8 }}>
+          <h3>👁 오른쪽 (R)</h3>
+          <p><strong>입력값 (VD=10mm, 고객이 원하는 도수):</strong> Sph {result.R.input.sph.toFixed(2)}, Cyl {result.R.input.cyl.toFixed(2)}, Axis {result.R.input.axis.toFixed(1)}°</p>
+          <p><strong>PA/WA 보정 (VD=10mm):</strong> Sph {result.R.paWa.sph.toFixed(2)}, Cyl {result.R.paWa.cyl.toFixed(2)}, Axis {result.R.paWa.axis.toFixed(1)}°</p>
+          <p><strong>실제 주문 도수 (입력 VD 기준):</strong> <span style={{ color: "#d97706" }}>Sph {result.R.order.sph.toFixed(2)}, Cyl {result.R.order.cyl.toFixed(2)}, Axis {result.R.order.axis.toFixed(1)}°</span></p>
+          <p>PD 보정값: {pdComp.R.toFixed(2)} mm / Index: {inputs.R.index}</p>
+          <hr style={{ margin: "16px 0" }} />
+          <h3>👁 왼쪽 (L)</h3>
+          <p><strong>입력값 (VD=10mm, 고객이 원하는 도수):</strong> Sph {result.L.input.sph.toFixed(2)}, Cyl {result.L.input.cyl.toFixed(2)}, Axis {result.L.input.axis.toFixed(1)}°</p>
+          <p><strong>PA/WA 보정 (VD=10mm):</strong> Sph {result.L.paWa.sph.toFixed(2)}, Cyl {result.L.paWa.cyl.toFixed(2)}, Axis {result.L.paWa.axis.toFixed(1)}°</p>
+          <p><strong>실제 주문 도수 (입력 VD 기준):</strong> <span style={{ color: "#d97706" }}>Sph {result.L.order.sph.toFixed(2)}, Cyl {result.L.order.cyl.toFixed(2)}, Axis {result.L.order.axis.toFixed(1)}°</span></p>
+          <p>PD 보정값: {pdComp.L.toFixed(2)} mm / Index: {inputs.L.index}</p>
         </div>
       </section>
     </div>
